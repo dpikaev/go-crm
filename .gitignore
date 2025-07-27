@@ -1,0 +1,5 @@
+# Ignore http requests folder
+http_requests/
+
+# Ignore env file
+.env
