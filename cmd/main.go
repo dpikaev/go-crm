@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"log"
 	"mini-crm/internal/config"
 	"mini-crm/internal/db"
 	"mini-crm/internal/handler"
@@ -15,22 +17,23 @@ func main() {
 	config.LoadEnv()
 	db.Init()
 
+	if err := db.CheckConnection(); err != nil {
+		log.Fatal("Failed to ping database:", err)
+	}
+	fmt.Println("Database connection verified")
+
 	r := gin.Default()
 
-	// Миграция
-	db.DB.AutoMigrate()
-
-	// DI: Сборка зависимостей
 	userRepo := repositoryimpl.NewUserRepository(db.DB)
-	userService := service.NewUserService(userRepo)
+	tokenRepo := repositoryimpl.NewTokenRepository(db.DB)
+	userService := service.NewUserService(userRepo, tokenRepo)
 	userHandler := handler.NewUserHandler(userService)
 
-	// Роуты
 	r.POST("/register", userHandler.Register)
 	r.POST("/login", userHandler.Login)
-	r.GET("/ping", middleware.AuthMiddleware(userRepo), func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong"})
-	})
+	r.POST("/refresh", userHandler.Refresh)
+	r.POST("/logout", userHandler.Logout)
+	r.GET("/me", middleware.AuthMiddleware(userRepo), userHandler.Me)
 
 	r.Run()
 }

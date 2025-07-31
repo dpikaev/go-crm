@@ -1,17 +1,16 @@
 package middleware
 
 import (
+	"fmt"
+	"mini-crm/internal/dto"
+	"mini-crm/internal/repository"
 	"net/http"
 	"os"
 	"strings"
 
-	"mini-crm/internal/repository"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
-
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func AuthMiddleware(userRepo repository.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -28,32 +27,30 @@ func AuthMiddleware(userRepo repository.UserRepository) gin.HandlerFunc {
 		}
 
 		tokenStr := parts[1]
+		secret := os.Getenv("JWT_SECRET")
+		if secret == "" {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "JWT secret not configured"})
+			return
+		}
 
-		claims := jwt.MapClaims{}
+		claims := &dto.CustomClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrInvalidKey
+			if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Method.Alg())
 			}
-			return jwtSecret, nil
+			return []byte(secret), nil
 		})
-
 		if err != nil || !token.Valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
 
-		userIDFloat, ok := claims["user_id"].(float64)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid user_id claim"})
-			return
-		}
-
-		userID := uint(userIDFloat)
-		user, err := userRepo.GetByID(userID)
+		user, err := userRepo.GetByID(claims.UserID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 			return
 		}
+		fmt.Println("Authenticated user ID:", claims.UserID)
 
 		c.Set("user", user)
 		c.Next()
